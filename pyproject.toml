@@ -1,3 +1,17 @@
+[project]
+name = "python-chargepoint"
+version = "1.10.0"
+description = "A simple, Pythonic wrapper for the ChargePoint API."
+license = "MIT"
+packages = [
+    { include = "python_chargepoint" },
+]
+readme = "README.md"
+dependencies = [
+"python >= 3.9",
+"requests >= 2.32.3",
+]
+
 [tool.poetry]
 name = "python-chargepoint"
 version = "1.10.0"
@@ -9,7 +23,7 @@ packages = [
 ]
 readme = "README.md"
 
-[tool.poetry.dependencies]
+[tool.poetry.xdependencies]
 python = "^3.9"
 requests = "^2.32.3"
 
