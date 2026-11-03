@@ -1,5 +1,5 @@
 {
-  description = "community meter maid; pulls car charger data from e.g. Emporia to a Google spreadsheet";
+  description = "flake for Python library python-chargepoint";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs?ref=nixpkgs-unstable";
