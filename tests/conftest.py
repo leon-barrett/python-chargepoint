@@ -2,11 +2,17 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-import responses
+from aioresponses import aioresponses as _aioresponses
 
 from python_chargepoint import ChargePoint
-from python_chargepoint.global_config import ChargePointGlobalConfiguration
+from python_chargepoint.global_config import GlobalConfiguration
 from python_chargepoint.constants import DISCOVERY_API
+
+
+@pytest.fixture
+def aioresponses():
+    with _aioresponses() as m:
+        yield m
 
 
 @pytest.fixture(scope="session")
@@ -40,25 +46,116 @@ def user_charging_status_json(timestamp: datetime):
 
 
 @pytest.fixture(scope="session")
-def global_config(global_config_json) -> ChargePointGlobalConfiguration:
-    return ChargePointGlobalConfiguration.from_json(global_config_json)
+def global_config(global_config_json) -> GlobalConfiguration:
+    return GlobalConfiguration.model_validate(global_config_json)
 
 
 @pytest.fixture
-@responses.activate
-def authenticated_client(global_config_json) -> ChargePoint:
-    responses.add(responses.POST, DISCOVERY_API, status=200, json=global_config_json)
-    responses.add(
-        responses.POST,
-        "https://account.chargepoint.com/account/v2/driver/profile/account/login",
+async def authenticated_client(aioresponses, global_config_json) -> ChargePoint:
+    aioresponses.post(DISCOVERY_API, status=200, payload=global_config_json)
+    aioresponses.get(
+        "https://account.chargepoint.com/account/v1/driver/profile/user",
         status=200,
-        json={
-            "user": {"userId": 1},
-            "sessionId": "rAnDomBaSe64EnCodEdDaTaToKeNrAnDomBaSe64EnCodEdD#D???????#RNA-US",
+        payload={
+            "user": {
+                "email": "test@pytest.com",
+                "evatarUrl": "https://pytest.com",
+                "familyName": "Test",
+                "fullName": "Test User",
+                "givenName": "Test",
+                "phone": "1234567890",
+                "phoneCountryId": 1,
+                "userId": 1,
+                "username": "test",
+            },
+            "accountBalance": {
+                "accountNumber": "1",
+                "accountState": "test",
+                "balance": {"amount": "0.0", "currency": "USD"},
+            },
         },
     )
 
-    return ChargePoint(username="test", password="demo")
+    client = await ChargePoint.create(
+        username="test",
+        coulomb_token="rAnDomBaSe64EnCodEdDaTaToKeNrAnDomBaSe64EnCodEdD#D???????#RNA-US",
+    )
+    yield client
+    await client.close()
+
+
+@pytest.fixture
+def station_info_json():
+    return {
+        "name": ["TEST STATION", "PORT A"],
+        "deviceId": 99991111,
+        "address": {
+            "address1": "1 Test Ave",
+            "city": "Testville",
+            "state": "Teststate",
+        },
+        "description": "Test level 2 station",
+        "modelNumber": "CT4020-HD-GW",
+        "network": {
+            "name": "ChargePoint Network",
+            "displayName": "ChargePoint Network",
+            "logoUrl": "https://example.com/logo.png",
+            "inNetwork": True,
+        },
+        "portsInfo": {
+            "ports": [
+                {
+                    "outletNumber": 1,
+                    "powerRange": {"unit": "kW", "max": "7.2"},
+                    "status": "available",
+                    "statusV2": "available",
+                    "displayLevel": "AC",
+                    "level": "L2",
+                    "parkingAccessibility": "NONE",
+                    "connectorList": [
+                        {
+                            "status": "available",
+                            "statusV2": "available",
+                            "displayPlugType": "J1772",
+                            "plugType": "J1772",
+                        }
+                    ],
+                }
+            ],
+            "portCount": 1,
+            "dc": False,
+        },
+        "stationStatus": "available",
+        "stationStatusV2": "available",
+        "latitude": 0.1,
+        "longitude": 0.1,
+        "hostName": "Test Host",
+        "openCloseStatus": "open",
+        "maxPower": {"unit": "kW", "max": "7.2"},
+        "accessRestriction": "NONE",
+        "parkingAccessibility": "NONE",
+        "stopChargeSupported": True,
+        "remoteStartCharge": True,
+        "sharedPower": True,
+        "reducedPower": False,
+        "stationPrice": {
+            "currencyCode": "USD",
+            "energyFee": {
+                "touFeeList": [
+                    {
+                        "day": "alldays",
+                        "startTime": 0,
+                        "endTime": 0,
+                        "fee": {"amount": 0.10, "unit": "KWH"},
+                    }
+                ]
+            },
+            "guestFee": {"amount": 0.99, "unit": "SESSION"},
+            "taxes": [{"name": "State Tax", "percent": 6.25}],
+        },
+        "deviceSoftwareVersion": "V4.6.0.95",
+        "lastChargedDate": "2026-01-01",
+    }
 
 
 @pytest.fixture
@@ -104,20 +201,22 @@ def account_json():
 
 
 @pytest.fixture
-def home_charger_json(timestamp: datetime):
+def home_charger_json():
     return {
         "brand": "CP",
-        "is_plugged_in": True,
-        "is_connected": True,
-        "charging_status": "AVAILABLE",
-        "last_connected_at": timestamp.timestamp() * 1000,
-        "is_reminder_enabled": False,
-        "plug_in_reminder_time": "0:00",
+        "isPluggedIn": True,
+        "isConnected": True,
+        "chargingStatus": "AVAILABLE",
+        "isReminderEnabled": False,
+        "plugInReminderTime": "0:00",
         "model": "HOME FLEX",
-        "mac_address": "00:00:00:00:00:00",
-        "charge_amperage_setting": {
-            "charge_limit": 28,
-            "possible_charge_limit": [
+        "macAddress": "00:00:00:00:00:00",
+        "hasUtilityInfo": False,
+        "isDuringScheduledTime": False,
+        "chargeAmperageSettings": {
+            "chargeLimit": 28,
+            "inProgress": False,
+            "possibleChargeLimit": [
                 20,
                 21,
                 22,
@@ -139,15 +238,15 @@ def home_charger_json(timestamp: datetime):
 @pytest.fixture
 def home_charger_tech_info_json(timestamp: datetime):
     return {
-        "model_number": "CPH50-NEMA6-50-L23",
-        "serial_number": "1234567890",
-        "wifi_mac": "00:00:00:00:00:00",
-        "mac_address": "00:00:00:00:00:00",
-        "software_version": "1.2.3.4",
-        "last_ota_update": timestamp.timestamp() * 1000,
-        "device_ip": "10.0.0.1",
-        "last_connected_at": timestamp.timestamp() * 1000,
-        "is_stop_charge_supported": True,
+        "modelNumber": "CPH50-NEMA6-50-L23",
+        "serialNumber": "1234567890",
+        "wifiMac": "00:00:00:00:00:00",
+        "macAddress": "00:00:00:00:00:00",
+        "softwareVersion": "1.2.3.4",
+        "lastOtaUpdate": timestamp.timestamp() * 1000,
+        "deviceIp": "10.0.0.1",
+        "lastConnectedAt": timestamp.timestamp() * 1000,
+        "stopChargeSupported": True,
     }
 
 
@@ -257,16 +356,163 @@ def charging_status_partial_json(timestamp: datetime) -> dict:
 
 
 @pytest.fixture
-@responses.activate
-def charging_session(authenticated_client: ChargePoint, charging_status_json: dict):
-    responses.add(
-        responses.GET,
-        "https://mc.chargepoint.com/map-prod/v2?%7B%22user_id%22%3A1%2C%22charging_status"
-        + "%22%3A%7B%22mfhs%22%3A%7B%7D%2C%22session_id%22%3A1%7D%7D",
+def nearby_stations_json():
+    return {
+        "map_data": {
+            "favorites": [],
+            "stations": [
+                {
+                    "device_id": 99991111,
+                    "lat": 0.1,
+                    "lon": 0.1,
+                    "name1": "TEST STATION",
+                    "name2": "UNIT A",
+                    "address1": "1 Test Ave",
+                    "city": "Testville",
+                    "network_display_name": "ChargePoint Network",
+                    "station_status": "available",
+                    "station_status_v2": "available",
+                    "payment_type": "paid",
+                    "total_port_count": 2,
+                    "ports": [
+                        {
+                            "status_v2": "available",
+                            "port_type": 3,
+                            "outlet_number": 1,
+                            "parking_accessibility": "NONE",
+                            "available_power": "7.2",
+                            "status": "available",
+                        }
+                    ],
+                    "has_l2": True,
+                    "max_power": {"unit": "kW", "max": 7.2},
+                    "can_remote_start_charge": True,
+                    "waitlist_allowed": False,
+                    "access_restriction": "NONE",
+                },
+                {
+                    "device_id": 99992222,
+                    "lat": 0.2,
+                    "lon": 0.2,
+                    "station_status": "in_use",
+                    "station_status_v2": "in_use",
+                    "payment_type": "free",
+                    "is_home": True,
+                    "charging_status": "fully_charged",
+                    "charging_info": {
+                        "session_id": 1000000001,
+                        "session_time": 3600000,
+                        "energy_kwh": 10.5,
+                        "energy_kwh_display": "10.5",
+                        "currency_iso_code": "USD",
+                        "current_charging": "fully_charged",
+                        "miles_added": 40.0,
+                        "total_amount": 0.0,
+                        "payment_type": "none",
+                        "start_time": 1000000000000,
+                        "last_update_data_timestamp": 1000003600000,
+                        "utility": {"id": 1, "name": "Test Utility", "plans": []},
+                        "vehicle_info": {
+                            "vehicle_id": 1111,
+                            "make": "TestMake",
+                            "model": "TestModel",
+                            "year": 2024,
+                            "ev_range": 300,
+                            "battery_capacity": 75.0,
+                            "is_primary_vehicle": True,
+                        },
+                    },
+                    "total_port_count": 1,
+                    "ports": [],
+                    "has_l2": True,
+                },
+            ],
+        }
+    }
+
+
+@pytest.fixture
+async def charging_session(
+    aioresponses, authenticated_client: ChargePoint, charging_status_json: dict
+):
+    aioresponses.post(
+        "https://internal-api-us.chargepoint.com/driver-bff/v1/sessions/1",
         status=200,
-        json={
-            "charging_status": charging_status_json,
-        },
+        payload={"charging_status": charging_status_json},
     )
 
-    return authenticated_client.get_charging_session(session_id=1)
+    return await authenticated_client.get_charging_session(session_id=1)
+
+
+@pytest.fixture
+def home_charger_schedule_json():
+    return {
+        "hasTouPricing": False,
+        "defaultSchedule": {
+            "weekdays": {
+                "startWeekday": 1,
+                "startTime": "23:00",
+                "endWeekday": 5,
+                "endTime": "07:00",
+            },
+            "weekends": {
+                "startWeekday": 6,
+                "startTime": "19:00",
+                "endWeekday": 7,
+                "endTime": "15:00",
+            },
+        },
+        "basedOnUtility": {
+            "plans": [
+                {"code": "R", "name": "Residential", "id": 80693, "isEvPlan": False}
+            ],
+            "name": "Test Utility",
+            "id": 22,
+        },
+        "hasUtilityInfo": True,
+        "scheduleEnabled": False,
+    }
+
+
+@pytest.fixture
+def home_charger_schedule_set_json():
+    return {
+        "hasTouPricing": False,
+        "userSchedule": {
+            "weekdays": {
+                "startWeekday": 1,
+                "startTime": "23:00",
+                "endWeekday": 5,
+                "endTime": "07:00",
+            },
+            "weekends": {
+                "startWeekday": 6,
+                "startTime": "19:00",
+                "endWeekday": 7,
+                "endTime": "15:00",
+            },
+        },
+        "utilitySchedule": {
+            "weekdays": {
+                "startWeekday": 1,
+                "startTime": "23:00",
+                "endWeekday": 5,
+                "endTime": "07:00",
+            },
+            "weekends": {
+                "startWeekday": 6,
+                "startTime": "19:00",
+                "endWeekday": 7,
+                "endTime": "15:00",
+            },
+        },
+        "basedOnUtility": {
+            "plans": [
+                {"code": "R", "name": "Residential", "id": 80693, "isEvPlan": False}
+            ],
+            "name": "Test Utility",
+            "id": 22,
+        },
+        "hasUtilityInfo": True,
+        "scheduleEnabled": True,
+    }
